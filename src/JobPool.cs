@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 
 namespace Reduvia;
 
+/// <inheritdoc cref="IJobPool"/>
 public class JobPool : IDisposable, IJobPool
 {
     private readonly Thread[] _workers;
@@ -14,15 +15,19 @@ public class JobPool : IDisposable, IJobPool
     {
     }
 
-    public JobPool(int size)
+    /// <summary>
+    /// Constructs a JobPool with specified number of worker threads.
+    /// </summary>
+    /// <param name="workerCount">The number of worker threads</param>
+    public JobPool(int workerCount)
     {
-        _workers = new Thread[size];
+        _workers = new Thread[workerCount];
         for (var i = 0; i < _workers.Length; i++)
         {
             _workers[i] = new Thread(Work);
         }
 
-        _jobs = new BlockingCollection<Job>(boundedCapacity: size * 2);
+        _jobs = new BlockingCollection<Job>(boundedCapacity: workerCount * 2);
     }
 
     public void Enqueue(Job task, CancellationToken ct)
@@ -77,23 +82,32 @@ public class JobPool : IDisposable, IJobPool
     /// <inheritdoc cref="IDisposable.Dispose"/>
     public void Dispose()
     {
-        GC.SuppressFinalize(this);
-
-        // Don't accept any new tasks
-        _jobs.CompleteAdding();
-        
-        // ReSharper disable MethodSupportsCancellation
-        Task.Run(async () =>
+        // No exceptions when disposing
+        try
         {
-            // Wait until all the running tasks are done
-            // ReSharper disable once AccessToDisposedClosure
-            while (_jobs.Count != 0)
-            {
-                await Task.Delay(1000);
-            }
-        }).GetAwaiter().GetResult();
-        // ReSharper restore MethodSupportsCancellation
+            GC.SuppressFinalize(this);
 
-        _jobs.Dispose();
+            // Don't accept any new tasks
+            _jobs.CompleteAdding();
+
+            // ReSharper disable MethodSupportsCancellation
+            Task.Run(async () =>
+            {
+                // Wait until all the running tasks are done
+                // ReSharper disable once AccessToDisposedClosure
+                while (_jobs.Count != 0)
+                {
+                    await Task.Delay(1000);
+                }
+            }).GetAwaiter().GetResult();
+            // ReSharper restore MethodSupportsCancellation
+
+            _jobs.Dispose();
+        }
+        catch (Exception)
+        {
+            // ignore
+        }
+        
     }
 }
